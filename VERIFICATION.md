@@ -1,6 +1,18 @@
 # Verification — 9 October 2026
 
-## Passed locally
+## Audit and evaluation extension — verified locally
+
+- **39 automated tests** passed across the factory and observability suites. New coverage includes concurrent ordered journal writes, restart deduplication, returned/revised states, append-only triggers, hash tampering, external-checkpoint tail deletion, linked-trace isolation, paginated worker/reviewer history, missing telemetry, role attribution, probe grading failures and fixture separation from the production board.
+- Python compilation, both JavaScript syntax checks and Git whitespace checks passed.
+- **Three real Codex role probes passed**: worker bug repair plus externally executed boundary assertions and added regression tests; reviewer detection of all three seeded defect categories with precision/recall 1.0 and no false positives; orchestrator planning with exclusive file ownership, complete coverage and valid dependencies.
+- The first live probe exposed a missing remote/default-branch fixture requirement. It remains in the audit as an unscored infrastructure error. The fixture now uses a local bare remote; no GitHub repository or PR is created for probes.
+- A supervisor/native-daemon restart preserved all three successful probe results, the failed setup attempt, linked execution sessions, captured activities and automatically saved per-subject evaluation records.
+- A real journal export containing 192 events was independently checked by recomputing every SHA-256 link, sequence and checkpoint. CLI verification against the retained external export checkpoint also passed.
+- Browser accessibility/DOM inspection confirmed role selection, token-usage display, explicit unknown model/cost fields, saving an evidence evaluation, launching role probes, actual graded outcomes and journal verification. The 309px layout reported no horizontal overflow. Screenshot capture timed out in the in-app browser, so no new visual screenshot is claimed. Secret transcripts and runtime databases remain outside Git.
+
+These are synthetic ability probes executed by native worker sessions. They do **not** establish production PR success rates, exercise native orchestrator delegation end to end, or substitute for a real native PR-review lifecycle. The production-reviewer collector boundary is tested with controlled native API records. The original production PR/CI/repair limitations below still apply.
+
+## Original baseline verification
 
 - **20 extension tests**, including parameterized failure cases: missing required checks, failed/pending/skipped/neutral checks, unresolved threads, stale approvals, another PR's approval, superseding review passes, change requests without branch protection, changing heads, full evidence pagination, retry identifiers, failed onboarding, supervisor Host/Origin/CSRF checks, and safe vector-asset routing.
 - Python compilation and JavaScript syntax checks.

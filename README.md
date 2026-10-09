@@ -76,11 +76,18 @@ The workflow's draft-PR/no-merge rules and three-worker limit are instructions, 
 
 Updating WORKFLOW.md does not silently change running sessions or previously connected project configs. Reconfigure through the native project API/CLI for existing projects. Onboarding deliberately creates a new project and does not overwrite existing project settings.
 
+## Audit trails and evaluations
+
+The **Audit & evals** dashboard provides separate histories for orchestrators, workers, reviewers, CI and gates; linked traces; saved operational evaluations; token usage when reported; journal verification and export; and real role probes with deterministic grading. The collector runs without an open browser. [OBSERVABILITY.md](OBSERVABILITY.md) explains evidence coverage, role benchmark semantics, APIs and checkpoint verification.
+
+Role probes test bug fixing, defect detection, and planning in dedicated native worker sessions. They are narrow synthetic evaluations, not production PR success rates. Missing telemetry remains unknown. Audit state and transcripts stay outside Git.
+
 ## Verification
 
 ```bash
-python3 -m unittest -v test_factory
+python3 -m unittest -v test_factory test_observability
 node --check web/app.js
+node --check web/observatory.js
 ```
 
 The local suite covers gate failure cases, stale evidence, pagination, retry-safe dispatch and the native API boundary. Live smoke testing used the official binary and a disposable repository: native project configuration, a real Codex worker in a separate worktree, a real provider response, and browser interaction. See [VERIFICATION.md](VERIFICATION.md) for actual results and remaining validation gaps.
