@@ -1,0 +1,28 @@
+{
+  "sessionId": "factory-live-fixture-1",
+  "branch": "ao/factory-live-fixture-1/root",
+  "controller": "ready",
+  "turnStates": [
+    "completed"
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "text": "Integration smoke test only. Read README.md and reply with its first heading. Do not change files, create PRs, or delegate. This is a disposable local fixture. Acceptance: report the actual first heading.",
+      "createdAt": "2026-10-09T13:44:54Z"
+    },
+    {
+      "role": "assistant",
+      "text": "I\u2019ll read README.md and report its first heading.\n",
+      "createdAt": "2026-10-09T13:44:57Z"
+    },
+    {
+      "role": "assistant",
+      "text": "# Factory integration fixture",
+      "createdAt": "2026-10-09T13:45:02Z"
+    }
+  ],
+  "realProviderExecution": true,
+  "persistedAcrossRestart": true,
+  "productionPRCreated": false
+}

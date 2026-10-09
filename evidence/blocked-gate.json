@@ -1,0 +1,24 @@
+{
+  "ready": false,
+  "reasons": [
+    "No independent AO review approved the current head"
+  ],
+  "headSha": "57883512c5e640399afe1dee261297fa646d4efe",
+  "prUrl": "https://github.com/OrchestratorInc/agent-orchestrator/pull/6472",
+  "draft": true,
+  "requiredChecks": [
+    "test"
+  ],
+  "successfulChecks": [
+    "Post trailing 7-day review stats",
+    "mac-update-helper",
+    "renderer-smoke",
+    "scan",
+    "test"
+  ],
+  "approvedReviewRuns": [],
+  "observedAt": "2026-10-09T13:51:10.145926+00:00",
+  "meaning": "Evidence incomplete; resolve blockers before handoff.",
+  "sessionId": "factory-live-fixture-1",
+  "reportPath": "/home/arttu/.local/state/software-factory/gate-reports/factory-live-fixture-1-1791553870762901976.json"
+}

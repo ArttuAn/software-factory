@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/OrchestratorInc/agent-orchestrator",
+  "tag": "v0.13.5",
+  "commit": "c95ae361eee48d33c2f443c6d2fe69c445f548a8",
+  "license": "Apache-2.0",
+  "asset": "agent-orchestrator-linux-x64.deb",
+  "asset_sha256": "336d8aef2b812f43bcaf88a979a29ab22f5268c773d68fe35cc5a708f5648716",
+  "daemon_sha256": "2bb908e9d9e73a485f40a731f0b43f55f854921efc73ab46185deebdd8db0be7",
+  "source_modified": false
+}
