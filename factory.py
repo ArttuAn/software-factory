@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local factory supervisor over the pinned Agent Orchestrator HTTP API."""
 import argparse
+import contextvars
 import datetime as dt
 import hashlib
 import json
@@ -8,8 +9,10 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -18,8 +21,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from observability import AuditStore, Collector, operational_eval, now
+from benchmarks import Benchmarks, catalog
 
 ROOT = Path(__file__).resolve().parent
+CORRELATION = contextvars.ContextVar("factory_correlation", default=None)
 
 
 class FactoryError(Exception):
@@ -193,9 +199,60 @@ class Factory:
         self.base, self.state = base, Path(state)
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.lock = threading.RLock()
+        self.audit = AuditStore(self.state)
+        self.collector = Collector(self.audit, self.api)
+        self.benchmarks = Benchmarks(self)
 
     def api(self, path, body=None, method=None):
-        return ao_request(self.base, path, body, method)
+        if body is None and method in (None, "GET"):
+            return ao_request(self.base, path, body, method)
+        match = re.match(r"/api/v1/(sessions|reviews)/([\w.-]+)", path)
+        subject = ("reviewer:" if match and match[1] == "reviews" else "") + match[2] if match else "factory"
+        correlation = CORRELATION.get() or secrets.token_hex(16)
+        self.audit.append(subject, "native.requested", {"path": path, "method": method or "POST", "body": body}, correlation=correlation)
+        started = time.monotonic()
+        try:
+            result = ao_request(self.base, path, body, method)
+            owner = result.get("session") or result.get("orchestrator") or {}
+            resolved = owner.get("id", subject)
+            self.audit.append(resolved, "native.succeeded", {"path": path, "response": result, "durationMs": round((time.monotonic() - started) * 1000)}, correlation=correlation)
+            return result
+        except Exception as exc:
+            self.audit.append(subject, "native.failed", {"path": path, "error": str(exc)}, correlation=correlation)
+            raise
+
+    def observability(self):
+        return {"subjects": self.audit.subjects(), "collector": self.collector.status,
+                "benchmarkCatalog": catalog(), "benchmarkRunning": self.benchmarks.active,
+                "limits": "Polling captures available native history, not hidden reasoning or guaranteed complete tool output. Redaction is best effort. Local-user is not an authenticated identity."}
+
+    def agent_evals(self, identifier):
+        subject = next((s for s in self.audit.subjects() if s["id"] == identifier), None)
+        if subject is None:
+            raise FactoryError("Agent has not been observed yet")
+        return {"operational": operational_eval(self.audit, subject),
+                "history": list(self.audit.all_events(identifier, kinds=["eval.completed"])),
+                "benchmarks": list(self.audit.all_events(identifier, kinds=["benchmark.started", "benchmark.completed"]))}
+
+    def run_eval(self, identifier):
+        result = self.agent_evals(identifier)["operational"]
+        self.audit.append(identifier, "eval.completed", result, actor="local-user", correlation=CORRELATION.get())
+        return result
+
+    def trace_link(self, parent, child):
+        parent, child = safe_id(parent), safe_id(child)
+        if parent == child:
+            raise FactoryError("An agent cannot delegate to itself")
+        p = self.api(f"/api/v1/sessions/{parent}")["session"]
+        c = self.api(f"/api/v1/sessions/{child}")["session"]
+        if p.get("kind") != "orchestrator" or c.get("kind") != "worker" or not p.get("projectId") or p.get("projectId") != c.get("projectId"):
+            raise FactoryError("Delegation requires a native orchestrator and worker in the same project")
+        existing = next((s for s in self.audit.subjects() if s["id"] == child), {})
+        if existing.get("parentId") not in (None, parent):
+            raise FactoryError("Worker already has a different attributed parent")
+        self.audit.subject(parent, role="orchestrator", harness=p.get("harness"), projectId=p["projectId"], title=p.get("displayName", parent))
+        self.audit.subject(child, role="worker", harness=c.get("harness"), projectId=c["projectId"], title=c.get("displayName", child), parentId=parent, parentEvidence="reported; native roles/project validated")
+        return self.audit.append(parent, "delegation.recorded", {"parentId": parent, "childId": child, "projectId": p["projectId"], "provenance": "reported; native roles/project validated"}, dedup=f"delegation:{parent}:{child}") or {"parentId": parent, "childId": child}
 
     def policies(self):
         path = self.state / "factory-policies.json"
@@ -208,6 +265,7 @@ class Factory:
             temp = self.state / "factory-policies.tmp"
             temp.write_text(json.dumps(policies, indent=2) + "\n")
             temp.replace(self.state / "factory-policies.json")
+        self.audit.append("factory", "policy.saved", {"projectId": project, "policy": policy})
 
     def add(self, body):
         path = str(Path(body["path"]).expanduser().resolve(strict=True))
@@ -225,6 +283,8 @@ class Factory:
                   "reviewers": [{"harness": harness, "agentConfig": {"permissions": "auto"}}],
                   "agentRules": rules, "orchestratorRules": rules + "\nDelegate independent tasks to AO workers; avoid overlapping file ownership. Limit active workers to 3. This concurrency limit is an instruction, not a daemon quota.",
                   "autoReview": True, "workersRequestReview": True}
+        link_command = " ".join(shlex.quote(str(x)) for x in [sys.executable, ROOT / "factory.py", "--state", self.state, "--ao-port", urllib.parse.urlsplit(self.base).port, "trace-link"])
+        config["orchestratorRules"] += f"\nAfter spawning each worker, record its delegation for audit with: {link_command} <your-session-id> <worker-session-id>. This records a reported relationship validated against native roles and project."
         # Native create is atomic with config; never overwrite an existing project's settings.
         result = self.api("/api/v1/projects", {"path": path, "config": config})
         pid = result["project"]["id"]
@@ -252,6 +312,15 @@ class Factory:
                         "displayName": body.get("title", "Factory task")[:100]})
 
     def gate(self, sid, url):
+        self.audit.subject("gate:" + safe_id(sid), role="gate", parentId=sid, title="Readiness gate")
+        self.audit.append("gate:" + sid, "gate.requested", {"prUrl": url}, correlation=CORRELATION.get())
+        try:
+            return self._gate(sid, url)
+        except Exception as exc:
+            self.audit.append("gate:" + sid, "gate.failed", {"prUrl": url, "error": str(exc)}, correlation=CORRELATION.get())
+            raise
+
+    def _gate(self, sid, url):
         sid = safe_id(sid)
         session = self.api(f"/api/v1/sessions/{sid}")["session"]
         policy = self.policies().get(session.get("projectId"), {})
@@ -269,6 +338,11 @@ class Factory:
         report = reports / f"{sid}-{time.time_ns()}.json"
         result["reportPath"] = str(report)
         report.write_text(json.dumps(result, indent=2) + "\n")
+        self.audit.subject("ci:" + sid, role="ci", parentId=sid, title="GitHub CI")
+        self.audit.append("ci:" + sid, "ci.observed", {"headSha": result["headSha"], "prUrl": url, "checks": checks}, source="github", correlation=CORRELATION.get())
+        self.audit.append("gate:" + sid, "gate.evidence", {"pr": pr, "checks": checks, "threads": threads, "reviews": reviews}, source="github+native", correlation=CORRELATION.get())
+        self.audit.append(sid, "gate.assessed", result, correlation=CORRELATION.get(), dedup="gate-report:" + str(report))
+        self.audit.append("gate:" + sid, "gate.assessed", result, correlation=CORRELATION.get(), dedup="gate-component:" + str(report))
         return result
 
 
@@ -301,54 +375,96 @@ def handler(factory, port):
                 if self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}"):
                     return self.reply({"error": "Invalid host"}, 403)
                 path = urllib.parse.urlsplit(self.path).path
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if path == "/api/observability":
+                    return self.reply(factory.observability())
+                if path == "/api/audit/verify":
+                    return self.reply(factory.audit.verify())
+                if path == "/api/audit/export":
+                    checkpoint = factory.audit.verify()
+                    events = [e for e in factory.audit.all_events() if e["seq"] <= checkpoint["events"]]
+                    return self.reply({"exportedAt": now(), "checkpoint": checkpoint, "subjects": factory.audit.subjects(), "events": events})
+                if path == "/api/audit":
+                    subject = query.get("subject", [None])[0]
+                    after = int(query.get("after", ["0"])[0])
+                    limit = max(1, min(int(query.get("limit", ["100"])[0]), 500))
+                    events = factory.audit.trace_events(subject, after, limit + 1) if query.get("scope") == ["trace"] and subject else factory.audit.events(subject, after, limit + 1)
+                    return self.reply({"events": events[:limit], "hasMore": len(events) > limit, "nextCursor": events[min(len(events), limit) - 1]["seq"] if events else after})
+                if path == "/api/evals":
+                    return self.reply(factory.agent_evals(query.get("subject", [""])[0]))
                 if path == "/":
                     return self.reply((ROOT / "web/index.html").read_bytes(), content_type="text/html; charset=utf-8")
-                if path in ("/app.js", "/style.css"):
+                if path in ("/app.js", "/observatory.js", "/style.css"):
                     return self.reply((ROOT / "web" / path[1:]).read_bytes(), content_type="text/javascript" if path.endswith("js") else "text/css")
                 if path in ("/assets/logo.svg", "/assets/logo-mark.svg", "/assets/icons.svg", "/assets/hero.svg"):
                     return self.reply((ROOT / "web" / path[1:]).read_bytes(), content_type="image/svg+xml")
                 if path == "/api/state":
+                    policies = factory.policies()
                     return self.reply({"engine": factory.api("/healthz"),
-                        "projects": factory.api("/api/v1/projects")["projects"],
-                        "sessions": factory.api("/api/v1/sessions")["sessions"],
-                        "policies": factory.policies(), "token": token})
+                        "projects": [p for p in factory.api("/api/v1/projects")["projects"] if p["id"] in policies],
+                        "sessions": [s for s in factory.api("/api/v1/sessions")["sessions"] if s.get("projectId") in policies],
+                        "policies": policies, "token": token})
                 match = re.fullmatch(r"/api/sessions/([\w.-]+)/(conversation|reviews)", path)
                 if match:
                     return self.reply(factory.api(f"/api/v1/sessions/{match[1]}/{match[2]}"))
                 return self.reply({"error": "Not found"}, 404)
-            except (FactoryError, KeyError, ValueError, OSError) as exc:
+            except (FactoryError, KeyError, ValueError, OSError, sqlite3.Error) as exc:
                 self.reply({"error": str(exc)}, 502)
+
+        def dispatch(self, subject, action, body, fn, status=200):
+            correlation = secrets.token_hex(16)
+            context = CORRELATION.set(correlation)
+            try:
+                factory.audit.append(subject, "supervisor.requested", {"action": action, "body": body}, actor="local-user", correlation=correlation)
+                result = fn()
+                resolved = (result.get("session") or result.get("orchestrator") or {}).get("id", subject)
+                factory.audit.append(resolved, "supervisor.succeeded", {"action": action, "response": result}, actor="local-user", correlation=correlation)
+                return self.reply(result, status)
+            except Exception as exc:
+                factory.audit.append(subject, "supervisor.failed", {"action": action, "error": str(exc)}, actor="local-user", correlation=correlation)
+                raise
+            finally:
+                CORRELATION.reset(context)
 
         def do_POST(self):
             host = self.headers.get("Host")
             origin = self.headers.get("Origin")
             if host not in (f"127.0.0.1:{port}", f"localhost:{port}") or origin not in (None, f"http://{host}") or self.headers.get("X-Factory-Token") != token:
+                factory.audit.append("factory", "supervisor.denied", {"method": "POST", "reason": "Host, Origin or CSRF validation failed"}, actor="unverified-client")
                 return self.reply({"error": "Request must originate from this local factory"}, 403)
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 2 or length > 32768:
                     return self.reply({"error": "Invalid request size"}, 413)
                 body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    raise ValueError("Expected a JSON object")
+                if self.path == "/api/benchmarks":
+                    return self.dispatch("factory", "benchmark", body, lambda: factory.benchmarks.launch(body["role"], body["harness"], CORRELATION.get()), 202)
+                if self.path == "/api/evals/run":
+                    return self.dispatch(body["subjectId"], "eval", body, lambda: factory.run_eval(body["subjectId"]))
+                if self.path == "/api/trace-links":
+                    return self.dispatch(body["parentId"], "trace-link", body, lambda: factory.trace_link(body["parentId"], body["childId"]))
                 if self.path == "/api/projects":
-                    return self.reply(factory.add(body), 201)
+                    return self.dispatch("factory", "connect", body, lambda: factory.add(body), 201)
                 if self.path == "/api/spawn":
-                    return self.reply(factory.spawn(body), 201)
+                    return self.dispatch("factory", "dispatch", body, lambda: factory.spawn(body), 201)
                 match = re.fullmatch(r"/api/sessions/([\w.-]+)/(send|review|gate|interrupt|approval)", self.path)
                 if not match:
                     return self.reply({"error": "Not found"}, 404)
                 sid, action = match.groups()
                 if action == "gate":
-                    return self.reply(factory.gate(sid, body["prUrl"]))
+                    return self.dispatch(sid, action, body, lambda: factory.gate(sid, body["prUrl"]))
                 if action == "review":
                     parse_pr(body["prUrl"])
-                    return self.reply(factory.api(f"/api/v1/sessions/{sid}/reviews/trigger", {"prUrl": body["prUrl"], "interfaceMode": "chat", "enableAutoInject": True}))
+                    return self.dispatch(sid, action, body, lambda: factory.api(f"/api/v1/sessions/{sid}/reviews/trigger", {"prUrl": body["prUrl"], "interfaceMode": "chat", "enableAutoInject": True}))
                 if action == "send":
-                    return self.reply(factory.api(f"/api/v1/sessions/{sid}/conversation/steer-or-send", {"text": body["text"], "clientMessageId": body["requestId"]}))
+                    return self.dispatch(sid, action, body, lambda: factory.api(f"/api/v1/sessions/{sid}/conversation/steer-or-send", {"text": body["text"], "clientMessageId": body["requestId"]}))
                 if action == "approval":
                     request_id = urllib.parse.quote(body["requestId"], safe="")
-                    return self.reply(factory.api(f"/api/v1/sessions/{sid}/conversation/approvals/{request_id}/resolve", {"decisionId": body["decisionId"]}))
-                return self.reply(factory.api(f"/api/v1/sessions/{sid}/conversation/interrupt", {}))
-            except (FactoryError, KeyError, ValueError, OSError, subprocess.TimeoutExpired) as exc:
+                    return self.dispatch(sid, action, body, lambda: factory.api(f"/api/v1/sessions/{sid}/conversation/approvals/{request_id}/resolve", {"decisionId": body["decisionId"]}))
+                return self.dispatch(sid, action, body, lambda: factory.api(f"/api/v1/sessions/{sid}/conversation/interrupt", {}))
+            except (FactoryError, KeyError, ValueError, OSError, sqlite3.Error, subprocess.TimeoutExpired) as exc:
                 self.reply({"error": str(exc)}, 400)
     return Handler
 
@@ -375,6 +491,14 @@ def main():
     gate = sub.add_parser("gate")
     gate.add_argument("session")
     gate.add_argument("pr_url")
+    audit = sub.add_parser("audit")
+    audit.add_argument("operation", choices=["verify", "export"])
+    audit.add_argument("--checkpoint", type=Path, help="Verify against a previously exported external checkpoint")
+    trace = sub.add_parser("trace-link")
+    trace.add_argument("parent")
+    trace.add_argument("child")
+    evaluation = sub.add_parser("eval")
+    evaluation.add_argument("subject")
     args = parser.parse_args()
     state = args.state.expanduser().resolve()
     base = f"http://127.0.0.1:{args.ao_port}"
@@ -390,6 +514,18 @@ def main():
     if args.command == "ao":
         os.execve(ROOT / "runtime/ao", ["ao"] + args.args, environment(state, args.ao_port))
     factory = Factory(base, state)
+    if args.command == "audit":
+        trusted = json.loads(args.checkpoint.read_text()) if args.checkpoint else None
+        checkpoint = factory.audit.verify(trusted.get("checkpoint", trusted) if trusted else None)
+        result = checkpoint if args.operation == "verify" else {"checkpoint": checkpoint, "subjects": factory.audit.subjects(), "events": [e for e in factory.audit.all_events() if e["seq"] <= checkpoint["events"]]}
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if checkpoint["valid"] else 1)
+    if args.command == "trace-link":
+        print(json.dumps(factory.trace_link(args.parent, args.child), indent=2))
+        return
+    if args.command == "eval":
+        print(json.dumps(factory.run_eval(args.subject), indent=2))
+        return
     if args.command == "gate":
         result = factory.gate(args.session, args.pr_url)
         print(json.dumps(result, indent=2))
@@ -417,11 +553,22 @@ def main():
                 time.sleep(.1)
         else:
             raise FactoryError("Daemon did not become ready")
+        # Capture independently of whether a browser is open.
+        factory.collector.start()
+        factory.audit.append("factory", "supervisor.started", {"pid": os.getpid(), "nativePort": args.ao_port, "port": args.port,
+            "upstream": json.loads((ROOT / "UPSTREAM.json").read_text()),
+            "sourceSha256": hashlib.sha256(b"".join((ROOT / p).read_bytes() for p in ("factory.py", "observability.py", "benchmarks.py"))).hexdigest()})
+        for event in factory.audit.all_events(kinds=["benchmark.started"]):
+            completed = factory.audit.events(event["subjectId"], event["seq"], 1, ["benchmark.completed"])
+            if not completed:
+                factory.audit.append(event["subjectId"], "benchmark.completed", {"status": "interrupted", "score": None, "error": "Supervisor restarted; inspect the linked native session before retrying."})
         server = ThreadingHTTPServer(("127.0.0.1", args.port), handler(factory, args.port))
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         print(f"Software Factory: http://127.0.0.1:{args.port} • AO v0.13.5 • state {state}", flush=True)
         server.serve_forever()
     finally:
+        factory.collector.stop.set()
+        factory.audit.append("factory", "supervisor.stopped", {"pid": os.getpid()})
         if child:
             child.terminate()
             try:

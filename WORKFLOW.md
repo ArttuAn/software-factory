@@ -12,3 +12,7 @@ Repository AGENTS.md and contribution instructions remain authoritative.
 7. **Handoff.** Ask the factory readiness gate to inspect the PR. Handoff requires named required CI checks to succeed, no failing/pending observed checks, no unresolved review threads, no outstanding change requests, a mergeable open PR, and an independent AO review approved at the current head. A passing gate is evidence for human review, not a merge authorization.
 
 Draft PR creation and the working practices above are agent instructions. The external readiness gate is deterministic and read-only. Enforce merge requirements separately with GitHub branch protection.
+
+## Evidence and evaluation
+
+Native conversations, turns, activities and review runs are observed by the factory collector. Preserve tool output and validation evidence; never claim an unavailable result. Orchestrators must record worker delegation using the trace-link command injected into their project configuration. Reviewers must bind every verdict to the actual PR URL and target commit and include concrete findings when requesting changes. Role-probe benchmarks are separate, explicitly labeled sessions and must follow their fixture-specific task rather than publishing a PR.
