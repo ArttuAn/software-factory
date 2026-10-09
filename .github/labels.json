@@ -1,0 +1,16 @@
+[
+  {"name":"type: bug","color":"B84A3D","description":"A reproducible defect in factory behavior"},
+  {"name":"type: feature","color":"4F7860","description":"New or improved factory capabilities"},
+  {"name":"type: docs","color":"738FA2","description":"Guides, workflow instructions, and reference material"},
+  {"name":"type: maintenance","color":"879380","description":"Dependencies, build tooling, and repository upkeep"},
+  {"name":"area: agents","color":"3E7668","description":"Agent sessions, orchestration, and upstream integration"},
+  {"name":"area: quality-gate","color":"759646","description":"PR evidence, CI checks, and independent review readiness"},
+  {"name":"area: ui","color":"987CB0","description":"Supervisor interface, accessibility, and branding"},
+  {"name":"area: github","color":"607E9B","description":"GitHub integration, repository metadata, and workflows"},
+  {"name":"priority: high","color":"B8543B","description":"Important work to address ahead of the normal queue"},
+  {"name":"priority: normal","color":"B1BE9A","description":"Normal planning priority"},
+  {"name":"status: blocked","color":"BD944A","description":"Waiting on a dependency, decision, or missing evidence"},
+  {"name":"status: ready","color":"8FAF58","description":"Scoped and ready for implementation"},
+  {"name":"good first issue","color":"B5C785","description":"A small, well-defined starting point for contributors"},
+  {"name":"help wanted","color":"6B9D8D","description":"Contributions or additional expertise are welcome"}
+]

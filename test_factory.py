@@ -76,6 +76,20 @@ class HandoffTests(unittest.TestCase):
 
 
 class IntegrationBoundaryTests(unittest.TestCase):
+    def test_supervisor_serves_vector_assets_but_rejects_arbitrary_paths(self):
+        Handler = handler(MagicMock(), 48080)
+        instance = object.__new__(Handler)
+        instance.headers = Message()
+        instance.headers["Host"] = "127.0.0.1:48080"
+        instance.reply = MagicMock()
+        instance.path = "/assets/logo-mark.svg"
+        instance.do_GET()
+        self.assertIn(b"Software Factory logo", instance.reply.call_args.args[0])
+        self.assertEqual(instance.reply.call_args.kwargs["content_type"], "image/svg+xml")
+        instance.path = "/assets/../../factory.py"
+        instance.do_GET()
+        self.assertEqual(instance.reply.call_args.args[1], 404)
+
     def test_supervisor_rejects_cross_origin_and_missing_csrf_before_dispatch(self):
         factory = MagicMock()
         Handler = handler(factory, 48080)

@@ -1,13 +1,28 @@
-# Software Factory
+<p align="center"><img src="web/assets/logo.svg" alt="Software Factory" width="410"></p>
+
+<p align="center"><strong>AI workers. Isolated worktrees. Evidence before handoff.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/ArttuAn/software-factory/actions/workflows/factory.yml"><img src="https://github.com/ArttuAn/software-factory/actions/workflows/factory.yml/badge.svg" alt="Factory tests"></a>
+  <a href="LICENSE"><img src="web/assets/badge-license.svg" alt="License: Apache 2.0"></a>
+  <a href="UPSTREAM.json"><img src="web/assets/badge-engine.svg" alt="Engine: Agent Orchestrator 0.13.5"></a>
+  <a href="WORKFLOW.md"><img src="web/assets/badge-quality.svg" alt="Quality gate: current commit"></a>
+</p>
+
+<p align="center"><a href="#start">Get started</a> · <a href="RESEARCH.md">Research</a> · <a href="WORKFLOW.md">Workflow</a> · <a href="VERIFICATION.md">Verification</a> · <a href="BRAND.md">Brand assets</a></p>
+
+![Software Factory workflow](web/assets/hero.svg)
 
 A working local factory built on **Agent Orchestrator v0.13.5**, with a browser supervisor and an evidence-based PR handoff gate. See [the research and comparison](RESEARCH.md) for why this foundation was selected.
 
 ## Start
 
-Requirements: Linux x64, Python 3.10+, Git, authenticated `gh`, and a supported authenticated coding-agent CLI. This machine already has the pinned native daemon in `runtime/ao`. There are no Python package dependencies.
+Requirements: Linux x64, Python 3.10+, Git, authenticated `gh`, and a supported authenticated coding-agent CLI. There are no Python package dependencies. A fresh Git clone requires the bootstrap step below; it verifies and extracts the pinned upstream daemon.
 
 ```bash
-cd /home/arttu/Documents/Codex/2026-10-09/i-wan/outputs/software-factory
+git clone https://github.com/ArttuAn/software-factory.git
+cd software-factory
+python3 bootstrap.py
 python3 factory.py serve
 ```
 
@@ -43,7 +58,7 @@ flowchart LR
   G --> H[Human review]
 ```
 
-**Upstream owns execution:** persistent agent sessions, worktrees, orchestrator/worker coordination, GitHub observations, independent reviewer runtimes and CI/review feedback delivery. The extension talks to the native HTTP API; it never writes upstream SQLite or fabricates lifecycle facts. Source is included under `upstream/`, unmodified.
+**Upstream owns execution:** persistent agent sessions, worktrees, orchestrator/worker coordination, GitHub observations, independent reviewer runtimes and CI/review feedback delivery. The extension talks to the native HTTP API; it never writes upstream SQLite or fabricates lifecycle facts. Upstream source is pinned in UPSTREAM.json and can be checked out with the command below; the extension does not vendor it into this repository.
 
 **Factory additions:** [WORKFLOW.md](WORKFLOW.md) is injected when a repository is connected. Native auto-review and review feedback injection are enabled. The supervisor shows real daemon state. A separate read-only gate evaluates actual GitHub and AO evidence:
 
@@ -70,7 +85,7 @@ node --check web/app.js
 
 The local suite covers gate failure cases, stale evidence, pagination, retry-safe dispatch and the native API boundary. Live smoke testing used the official binary and a disposable repository: native project configuration, a real Codex worker in a separate worktree, a real provider response, and browser interaction. See [VERIFICATION.md](VERIFICATION.md) for actual results and remaining validation gaps.
 
-The included GitHub workflow runs the extension checks as `Factory tests` when this directory becomes a repository on GitHub. It does not execute model jobs or download the daemon in CI.
+The GitHub workflow runs the extension checks as `Factory tests`. It does not execute model jobs or download the daemon in CI.
 
 The first production PR requires a target repository and task. No live PR was created just to demonstrate the UI. Real GitHub publication, CI repair and independent PR review therefore remain to be exercised on your chosen repository; the gate's logic is tested with controlled evidence.
 
@@ -88,3 +103,9 @@ The bootstrap downloads the official Linux x64 `.deb`, verifies both package and
 The supervisor and native daemon bind loopback only. Supervisor mutations require a per-process CSRF token and same-origin/Host checks. The upstream loopback API remains locally accessible as designed. Do not expose either port through a public tunnel. Telemetry is disabled in the launcher.
 
 Ctrl+C stops the supervisor and gracefully requests its owned daemon to stop. `serve --connect` attaches to a separately managed daemon and leaves it running on exit. Advanced runtime recovery and cleanup remain native AO responsibilities; the extension does not delete worktrees.
+
+## Project organization
+
+Use the issue templates for bug reports and feature requests. Labels distinguish work type, product area, priority and blocked/ready status. GitHub topics identify the project as a local AI-agent orchestration and pull-request workflow. `v0.1.0` identifies this factory extension; upstream Agent Orchestrator is independently pinned to `v0.13.5`.
+
+The original vector logo, workflow cover and interface icons live in [web/assets](web/assets). [BRAND.md](BRAND.md) documents the palette and status semantics. Runtime state, credentials, downloaded binaries and the upstream checkout are excluded from Git.

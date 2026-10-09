@@ -305,6 +305,8 @@ def handler(factory, port):
                     return self.reply((ROOT / "web/index.html").read_bytes(), content_type="text/html; charset=utf-8")
                 if path in ("/app.js", "/style.css"):
                     return self.reply((ROOT / "web" / path[1:]).read_bytes(), content_type="text/javascript" if path.endswith("js") else "text/css")
+                if path in ("/assets/logo.svg", "/assets/logo-mark.svg", "/assets/icons.svg", "/assets/hero.svg"):
+                    return self.reply((ROOT / "web" / path[1:]).read_bytes(), content_type="image/svg+xml")
                 if path == "/api/state":
                     return self.reply({"engine": factory.api("/healthz"),
                         "projects": factory.api("/api/v1/projects")["projects"],
