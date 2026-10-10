@@ -6,8 +6,10 @@ import unittest
 from unittest.mock import patch, MagicMock
 from email.message import Message
 from io import BytesIO
+from contextlib import redirect_stdout
+from io import StringIO
 
-from factory import Factory, FactoryError, evaluate, github_evidence, parse_pr, handler
+from factory import Factory, FactoryError, evaluate, github_evidence, parse_pr, handler, main
 
 
 class HandoffTests(unittest.TestCase):
@@ -76,6 +78,36 @@ class HandoffTests(unittest.TestCase):
 
 
 class IntegrationBoundaryTests(unittest.TestCase):
+    def test_proof_cli_preserves_command_arguments_after_separator(self):
+        argv = ["factory.py", "--state", "/tmp/factory-cli-test", "proof", "capture", "app-1",
+                "--workspace", "/tmp/worker", "--phase", "before", "--criterion", "Check output",
+                "--expect-exit", "1", "--", "python3", "-c", "print('--phase')"]
+        with patch("sys.argv", argv), patch("factory.Factory") as factory, redirect_stdout(StringIO()):
+            factory.return_value.capture_proof.return_value = {"data": {"passed": True}}
+            with self.assertRaises(SystemExit) as exit:
+                main()
+        self.assertEqual(exit.exception.code, 0)
+        self.assertEqual(factory.return_value.capture_proof.call_args.args[4], ["python3", "-c", "print('--phase')"])
+
+    def test_proof_routes_serve_evidence_and_reject_arbitrary_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            factory = Factory("http://unused", root)
+            Handler = handler(factory, 48080)
+            instance = object.__new__(Handler)
+            instance.headers = Message()
+            instance.headers["Host"] = "127.0.0.1:48080"
+            instance.reply = MagicMock()
+            instance.path = "/api/sessions/sample-1/proof?head=abc"
+            instance.do_GET()
+            self.assertFalse(instance.reply.call_args.args[0]["ready"])
+            self.assertEqual(instance.reply.call_args.args[0]["headSha"], "abc")
+            instance.path = "/api/proof-artifacts/" + "a" * 64 + ".png"
+            instance.do_GET()
+            self.assertEqual(instance.reply.call_args.args[1], 404)
+            instance.path = "/api/proof-artifacts/../../factory.py"
+            instance.do_GET()
+            self.assertEqual(instance.reply.call_args.args[1], 404)
+
     def test_supervisor_serves_vector_assets_but_rejects_arbitrary_paths(self):
         Handler = handler(MagicMock(), 48080)
         instance = object.__new__(Handler)
@@ -147,6 +179,8 @@ class IntegrationBoundaryTests(unittest.TestCase):
             self.assertTrue(body["config"]["workersRequestReview"])
             self.assertEqual(body["config"]["reviewers"][0]["harness"], "codex")
             self.assertEqual(factory.policies()["sample"]["requiredChecks"], ["test", "lint"])
+            self.assertTrue(factory.policies()["sample"]["requireProof"])
+            self.assertIn("proof capture", body["config"]["agentRules"])
 
     def test_missing_check_policy_blocks_onboarding_before_native_mutation(self):
         with tempfile.TemporaryDirectory() as root:

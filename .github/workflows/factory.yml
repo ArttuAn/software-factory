@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: python3 -m unittest -v test_factory test_observability
-      - run: python3 -m py_compile factory.py bootstrap.py observability.py benchmarks.py
+      - run: python3 -m unittest -v test_factory test_observability test_proof
+      - run: python3 -m py_compile factory.py bootstrap.py observability.py benchmarks.py proof.py
       - run: node --check web/app.js
       - run: node --check web/observatory.js

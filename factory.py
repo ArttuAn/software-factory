@@ -23,6 +23,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from observability import AuditStore, Collector, operational_eval, now
 from benchmarks import Benchmarks, catalog
+from proof import capture, attach, assess, git as proof_git
 
 ROOT = Path(__file__).resolve().parent
 CORRELATION = contextvars.ContextVar("factory_correlation", default=None)
@@ -276,8 +277,11 @@ class Factory:
         if harness not in ("codex", "copilot", "claude-code", "opencode"):
             raise FactoryError("Unsupported factory harness")
         rules = (ROOT / "WORKFLOW.md").read_text()
+        rules += "\nFactory build guidelines:\n" + (ROOT / "CODE_STRUCTURE.md").read_text()
         rules += "\nRequired GitHub CI checks for handoff: " + ", ".join(checks)
         rules += "\nUse draft PRs. The factory gate remains blocked until current-head evidence passes."
+        proof_command = " ".join(shlex.quote(str(x)) for x in [sys.executable, ROOT / "factory.py", "--state", self.state, "--ao-port", urllib.parse.urlsplit(self.base).port, "proof", "capture"])
+        rules += f"\nCapture each acceptance criterion before editing and after committing with: {proof_command} <worker-session-id> --workspace <your-worktree> --phase before|after --criterion <criterion> [--expect-exit <baseline-code>] [--artifact <image-or-video>] -- <comparison-command> [args]. Use the same criterion and command for both captures; after must exit 0. Command output is captured by the supervisor. No shell expansion is performed. See {ROOT / 'PROOF.md'} for limitations and examples."
         config = {"worker": {"agent": harness, "agentConfig": {"permissions": "auto"}},
                   "orchestrator": {"agent": harness, "agentConfig": {"permissions": "auto"}},
                   "reviewers": [{"harness": harness, "agentConfig": {"permissions": "auto"}}],
@@ -289,6 +293,7 @@ class Factory:
         result = self.api("/api/v1/projects", {"path": path, "config": config})
         pid = result["project"]["id"]
         self.save_policy(pid, {"requiredChecks": checks, "harness": harness,
+                               "requireProof": True,
                                "workflowSha256": hashlib.sha256(rules.encode()).hexdigest()})
         return result
 
@@ -311,6 +316,35 @@ class Factory:
                         "clientRequestId": request_id, "prompt": prompt,
                         "displayName": body.get("title", "Factory task")[:100]})
 
+    def capture_proof(self, sid, workspace, phase, criterion, command, expected_exit=0, timeout=120, artifacts=()):
+        sid = safe_id(sid)
+        session = self.api(f"/api/v1/sessions/{sid}")["session"]
+        pid = session.get("projectId")
+        if session.get("kind") != "worker" or pid not in self.policies():
+            raise FactoryError("Proof requires a factory-onboarded worker session")
+        project = self.api(f"/api/v1/projects/{safe_id(pid)}")["project"]
+        workspace = Path(workspace).expanduser().resolve(strict=True)
+        common = proof_git(workspace, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if (common != proof_git(project["path"], "rev-parse", "--path-format=absolute", "--git-common-dir")
+                or proof_git(workspace, "branch", "--show-current") != session.get("branch")
+                or workspace == Path(project["path"]).resolve()):
+            raise FactoryError("Capture proof in this worker's isolated branch/worktree")
+        baseline = None
+        if phase == "after":
+            baseline = next((e for e in reversed(list(self.audit.all_events(sid, kinds=["proof.captured"])))
+                             if e["data"]["phase"] == "before" and e["data"]["criterion"] == criterion.strip()), None)
+            if baseline is None:
+                raise FactoryError("Capture before proof for this acceptance criterion first")
+            proof_git(workspace, "merge-base", "--is-ancestor", baseline["data"]["headSha"], "HEAD")
+        result = capture(workspace, phase, criterion, command, expected_exit, timeout)
+        result["artifacts"] = attach(self.state, artifacts)
+        if baseline:
+            result.update(beforeHash=baseline["hash"], baselineAncestor=True)
+        return self.audit.append(sid, "proof.captured", result, actor="local-user", source="local-command")
+
+    def proof(self, sid, head=""):
+        return assess(self.audit.all_events(safe_id(sid), kinds=["proof.captured"]), head, self.state)
+
     def gate(self, sid, url):
         self.audit.subject("gate:" + safe_id(sid), role="gate", parentId=sid, title="Readiness gate")
         self.audit.append("gate:" + sid, "gate.requested", {"prUrl": url}, correlation=CORRELATION.get())
@@ -327,6 +361,12 @@ class Factory:
         reviews = self.api(f"/api/v1/sessions/{sid}/reviews").get("runs", [])
         pr, checks, threads = github_evidence(url)
         result = evaluate(pr, checks, threads, reviews, policy.get("requiredChecks", []))
+        result["proofRequired"] = policy.get("requireProof", False)
+        result["proof"] = self.proof(sid, result["headSha"])
+        if result["proofRequired"] and not result["proof"]["ready"]:
+            result["reasons"].extend("Proof: " + reason for reason in result["proof"]["reasons"])
+            result["ready"] = False
+            result["meaning"] = "Evidence incomplete; resolve blockers before handoff."
         # Verify head again after AO/GitHub evidence collection; reports are point-in-time.
         repo, number = parse_pr(url)
         current = run_json(["gh", "pr", "view", str(number), "--repo", repo, "--json", "headRefOid"])
@@ -404,9 +444,19 @@ def handler(factory, port):
                         "projects": [p for p in factory.api("/api/v1/projects")["projects"] if p["id"] in policies],
                         "sessions": [s for s in factory.api("/api/v1/sessions")["sessions"] if s.get("projectId") in policies],
                         "policies": policies, "token": token})
-                match = re.fullmatch(r"/api/sessions/([\w.-]+)/(conversation|reviews)", path)
+                match = re.fullmatch(r"/api/sessions/([\w.-]+)/(conversation|reviews|proof)", path)
                 if match:
+                    if match[2] == "proof":
+                        return self.reply(factory.proof(match[1], query.get("head", [""])[0]))
                     return self.reply(factory.api(f"/api/v1/sessions/{match[1]}/{match[2]}"))
+                match = re.fullmatch(r"/api/proof-artifacts/([a-f0-9]{64}\.(png|jpg|webp|mp4|webm))", path)
+                if match:
+                    from proof import MEDIA
+                    artifact = factory.state / "proof-artifacts" / match[1]
+                    if not artifact.is_file():
+                        return self.reply({"error": "Proof attachment not found"}, 404)
+                    return self.reply(artifact.read_bytes(),
+                                      content_type=MEDIA["." + match[2]])
                 return self.reply({"error": "Not found"}, 404)
             except (FactoryError, KeyError, ValueError, OSError, sqlite3.Error) as exc:
                 self.reply({"error": str(exc)}, 502)
@@ -491,6 +541,16 @@ def main():
     gate = sub.add_parser("gate")
     gate.add_argument("session")
     gate.add_argument("pr_url")
+    proof = sub.add_parser("proof", help="Capture actual before/after commands or inspect PR proof")
+    proof.add_argument("operation", choices=["capture", "show"])
+    proof.add_argument("session")
+    proof.add_argument("--workspace", type=Path)
+    proof.add_argument("--phase", choices=["before", "after"])
+    proof.add_argument("--criterion")
+    proof.add_argument("--expect-exit", type=int, default=0)
+    proof.add_argument("--timeout", type=int, default=120)
+    proof.add_argument("--artifact", action="append", default=[], type=Path)
+    proof.add_argument("--head", default="")
     audit = sub.add_parser("audit")
     audit.add_argument("operation", choices=["verify", "export"])
     audit.add_argument("--checkpoint", type=Path, help="Verify against a previously exported external checkpoint")
@@ -499,7 +559,11 @@ def main():
     trace.add_argument("child")
     evaluation = sub.add_parser("eval")
     evaluation.add_argument("subject")
-    args = parser.parse_args()
+    args, check_command = parser.parse_known_args()
+    if args.command == "proof" and check_command[:1] == ["--"]:
+        check_command = check_command[1:]
+    elif check_command:
+        parser.error("unrecognized arguments: " + " ".join(check_command))
     state = args.state.expanduser().resolve()
     base = f"http://127.0.0.1:{args.ao_port}"
     if args.command == "doctor":
@@ -514,6 +578,16 @@ def main():
     if args.command == "ao":
         os.execve(ROOT / "runtime/ao", ["ao"] + args.args, environment(state, args.ao_port))
     factory = Factory(base, state)
+    if args.command == "proof":
+        if args.operation == "show":
+            result = factory.proof(args.session, args.head)
+        else:
+            if args.workspace is None or args.phase is None or args.criterion is None or not check_command:
+                parser.error("proof capture needs --workspace, --phase, --criterion and -- COMMAND [ARGS...]")
+            result = factory.capture_proof(args.session, args.workspace, args.phase, args.criterion,
+                                           check_command, args.expect_exit, args.timeout, args.artifact)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result.get("data", result).get("passed", result.get("ready", False)) else 1)
     if args.command == "audit":
         trusted = json.loads(args.checkpoint.read_text()) if args.checkpoint else None
         checkpoint = factory.audit.verify(trusted.get("checkpoint", trusted) if trusted else None)
@@ -580,7 +654,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (FactoryError, OSError, subprocess.TimeoutExpired) as exc:
+    except (FactoryError, ValueError, OSError, subprocess.SubprocessError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:

@@ -18,3 +18,12 @@ dialog{border:1px solid #d3dfc5;border-radius:12px;padding:30px;width:510px;max-
 @media(max-width:760px){.audit-heading{display:block}.audit-heading .actions{justify-content:flex-start;margin-top:14px}.audit-filters{grid-template-columns:minmax(0,1fr);gap:0}.eval-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.observatory-content{padding:16px}.observatory h2{font-size:20px}.audit-event time{width:100%;margin-left:0}.probe-panel{padding:13px}.eval-metrics b{font-size:18px}}
 
 .trace-toggle{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:400}.trace-toggle input{width:auto;margin:0}.audit-event .tag{max-width:100%;overflow-wrap:anywhere}
+/* Proof pairs keep long commands and logs within the inspector. */
+.proof-pair{border-top:1px solid #d8dfdc;padding:12px 0;min-width:0}
+.proof-pair summary{cursor:pointer;overflow-wrap:anywhere}
+.proof-comparison{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:12px}
+.proof-comparison section{min-width:0}
+.proof-comparison h4{margin:0 0 8px}
+.proof-comparison code{display:block;overflow-wrap:anywhere;font-size:11px}
+.proof-comparison pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px}
+.proof-comparison img,.proof-comparison video{width:100%;height:auto;max-height:300px;object-fit:contain}

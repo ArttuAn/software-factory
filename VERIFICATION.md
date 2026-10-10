@@ -1,4 +1,33 @@
-# Verification — 9 October 2026
+# Verification
+
+## Video workflow and proof capture - 10 October 2026
+
+- **52 automated tests** passed across `test_factory`, `test_observability` and
+  `test_proof`. Real local Git fixtures run a failing baseline command, commit a
+  fix, capture the passing comparison and assess it with controlled CI/review
+  evidence. Coverage includes CLI argument preservation, stale heads, missing
+  pairs, changed commands, later failures, replaced baselines, dirty worktrees,
+  wrong branches, timeouts, corrupted/missing media and legacy policy behavior.
+- Python compilation, both JavaScript syntax checks and Git whitespace checks
+  passed. The CI workflow includes the new suite and module.
+- The pinned native daemon and updated supervisor started on separate local
+  ports 49082/49080 with empty temporary state. The live supervisor API responded
+  successfully. No provider/model jobs were launched for this change.
+- Playwright checked the proof inspector at 1440x1100 and 390x844. Both had no
+  page overflow, runtime errors or script injection from evidence text. Full-page
+  screenshots were visually inspected. Session and proof responses in this UI
+  check were explicitly intercepted fixtures; they were not inserted into the
+  running factory or presented as real worker results.
+- Original English automatic captions were retrieved directly from the supplied
+  YouTube video. VIDEO_NOTES.md maps its chapters to the implementation.
+
+The new capture/native-session boundary and successful GitHub gate are tested
+with controlled records. A new live agent PR-review/repair cycle was not run.
+The local `gh` credential is invalid and needs re-authentication before live
+GitHub gate checks can run. Captured output is execution evidence; meaningful
+acceptance coverage and media interpretation still require independent review.
+
+## Previous verification - 9 October 2026
 
 ## Audit and evaluation extension — verified locally
 

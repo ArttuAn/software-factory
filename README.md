@@ -76,6 +76,18 @@ The workflow's draft-PR/no-merge rules and three-worker limit are instructions, 
 
 Updating WORKFLOW.md does not silently change running sessions or previously connected project configs. Reconfigure through the native project API/CLI for existing projects. Onboarding deliberately creates a new project and does not overwrite existing project settings.
 
+## Before / After Proof
+
+The [video lessons](VIDEO_NOTES.md) are applied through [AGENTS.md](AGENTS.md),
+[build guidelines](CODE_STRUCTURE.md), and [captured proof](PROOF.md). Newly
+connected projects must provide before/after command evidence at handoff.
+Captures record actual exit status and output against clean commits in the
+worker's isolated worktree. Optional screenshots and videos are preserved by
+hash. The inspector shows the pairs; the gate rejects stale, failed or missing
+proof. Independent review must judge whether the comparisons cover the task.
+Existing connected projects keep their previous policies until deliberately
+re-onboarded. No additional review service or account is required.
+
 ## Audit trails and evaluations
 
 The **Audit & evals** dashboard provides separate histories for orchestrators, workers, reviewers, CI and gates; linked traces; saved operational evaluations; token usage when reported; journal verification and export; and real role probes with deterministic grading. The collector runs without an open browser. [OBSERVABILITY.md](OBSERVABILITY.md) explains evidence coverage, role benchmark semantics, APIs and checkpoint verification.
@@ -85,7 +97,7 @@ Role probes test bug fixing, defect detection, and planning in dedicated native 
 ## Verification
 
 ```bash
-python3 -m unittest -v test_factory test_observability
+python3 -m unittest -v test_factory test_observability test_proof
 node --check web/app.js
 node --check web/observatory.js
 ```
