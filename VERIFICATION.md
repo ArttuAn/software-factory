@@ -1,5 +1,27 @@
 # Verification
 
+## Portable Core and AO Adapter - 10 October 2026
+
+- **59 automated tests** passed across `test_factory`, `test_observability`,
+  `test_proof` and `test_workflow`. The exporter was executed in an isolated
+  directory containing only its script and three core Markdown files, with no
+  daemon or factory modules. Its output matched the complete contract.
+- Export tests cover existing-file protection, unchanged repository guidance,
+  missing destination directories, and absence of runtime/provider dependencies
+  in the core contract. No harness-specific instruction loader is installed or
+  modified by export.
+- Controlled native API tests verify all four supported harness configurations
+  receive the same core plus the AO adapter, proof commands, and audit command,
+  without a model pin. Unsupported runtime harnesses remain rejected.
+- Python compilation, JavaScript syntax and Git whitespace checks passed.
+  No frontend layout changed. No model/provider jobs or live PR review were run
+  for this separation. Alternative harness/model execution is not newly verified.
+
+The contract is portable; the dashboard, audit collector, proof command and
+deterministic native-review gate remain AO-specific. An exported Markdown file
+is agent guidance, not automated enforcement or a security boundary. Existing
+connected project configurations are not silently changed.
+
 ## Video workflow and proof capture - 10 October 2026
 
 - **52 automated tests** passed across `test_factory`, `test_observability` and

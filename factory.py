@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from observability import AuditStore, Collector, operational_eval, now
 from benchmarks import Benchmarks, catalog
 from proof import capture, attach, assess, git as proof_git
+from workflow import render as render_workflow
 
 ROOT = Path(__file__).resolve().parent
 CORRELATION = contextvars.ContextVar("factory_correlation", default=None)
@@ -276,12 +277,12 @@ class Factory:
         harness = body.get("harness", "codex")
         if harness not in ("codex", "copilot", "claude-code", "opencode"):
             raise FactoryError("Unsupported factory harness")
-        rules = (ROOT / "WORKFLOW.md").read_text()
-        rules += "\nFactory build guidelines:\n" + (ROOT / "CODE_STRUCTURE.md").read_text()
+        rules = render_workflow()
+        rules += "\n\n" + (ROOT / "adapters/ao/WORKFLOW.md").read_text(encoding="utf-8")
         rules += "\nRequired GitHub CI checks for handoff: " + ", ".join(checks)
         rules += "\nUse draft PRs. The factory gate remains blocked until current-head evidence passes."
         proof_command = " ".join(shlex.quote(str(x)) for x in [sys.executable, ROOT / "factory.py", "--state", self.state, "--ao-port", urllib.parse.urlsplit(self.base).port, "proof", "capture"])
-        rules += f"\nCapture each acceptance criterion before editing and after committing with: {proof_command} <worker-session-id> --workspace <your-worktree> --phase before|after --criterion <criterion> [--expect-exit <baseline-code>] [--artifact <image-or-video>] -- <comparison-command> [args]. Use the same criterion and command for both captures; after must exit 0. Command output is captured by the supervisor. No shell expansion is performed. See {ROOT / 'PROOF.md'} for limitations and examples."
+        rules += f"\nCapture each acceptance criterion before editing and after committing with: {proof_command} <worker-session-id> --workspace <your-worktree> --phase before|after --criterion <criterion> [--expect-exit <baseline-code>] [--artifact <image-or-video>] -- <comparison-command> [args]. Use the same criterion and command for both captures; after must exit 0. Command output is captured by the supervisor. No shell expansion is performed. See {ROOT / 'adapters/ao/PROOF.md'} for limitations and examples."
         config = {"worker": {"agent": harness, "agentConfig": {"permissions": "auto"}},
                   "orchestrator": {"agent": harness, "agentConfig": {"permissions": "auto"}},
                   "reviewers": [{"harness": harness, "agentConfig": {"permissions": "auto"}}],

@@ -13,9 +13,33 @@
 
 ![Software Factory workflow](web/assets/hero.svg)
 
-A working local factory built on **Agent Orchestrator v0.13.5**, with a browser supervisor and an evidence-based PR handoff gate. See [the research and comparison](RESEARCH.md) for why this foundation was selected.
+A **portable Markdown delivery workflow**, with an optional local runtime built
+on **Agent Orchestrator v0.13.5**, a browser supervisor and an evidence-based PR
+handoff gate. See [the research and comparison](RESEARCH.md) for why this runtime
+was selected.
 
 ## Start
+
+### Portable Workflow
+
+The core is [WORKFLOW.md](WORKFLOW.md), [CODE_STRUCTURE.md](CODE_STRUCTURE.md),
+and [PROOF.md](PROOF.md). Read them directly or export one self-contained file:
+
+```bash
+python3 workflow.py --output /path/to/project/FACTORY.md
+```
+
+The exporter requires only Python 3.10+ and these three Markdown files. It never
+overwrites existing files. Give the result to your chosen agent through its
+existing instruction-loading mechanism, or reference it from repository
+guidance. It does not edit AGENTS.md, configure a harness, or start an agent.
+Repository-specific instructions remain authoritative.
+
+No particular model, orchestrator, paid reviewer, or factory runtime is required
+by the core contract. Independent review still needs a separate context and
+actual evidence. Instructions alone do not enforce repository permissions or gates.
+
+### Optional AO Runtime
 
 Requirements: Linux x64, Python 3.10+, Git, authenticated `gh`, and a supported authenticated coding-agent CLI. There are no Python package dependencies. A fresh Git clone requires the bootstrap step below; it verifies and extracts the pinned upstream daemon.
 
@@ -60,7 +84,11 @@ flowchart LR
 
 **Upstream owns execution:** persistent agent sessions, worktrees, orchestrator/worker coordination, GitHub observations, independent reviewer runtimes and CI/review feedback delivery. The extension talks to the native HTTP API; it never writes upstream SQLite or fabricates lifecycle facts. Upstream source is pinned in UPSTREAM.json and can be checked out with the command below; the extension does not vendor it into this repository.
 
-**Factory additions:** [WORKFLOW.md](WORKFLOW.md) is injected when a repository is connected. Native auto-review and review feedback injection are enabled. The supervisor shows real daemon state. A separate read-only gate evaluates actual GitHub and AO evidence:
+**Factory additions:** The same portable contract is injected with the
+[AO adapter](adapters/ao/WORKFLOW.md) and [capture instructions](adapters/ao/PROOF.md)
+when a repository is connected. Native auto-review and review feedback injection
+are enabled. The supervisor shows real daemon state. A separate read-only gate
+evaluates actual GitHub and AO evidence:
 
 - PR is open and mergeability is known and clean.
 - Every configured required check exists and succeeds; every observed check succeeds. Skipped and neutral results block.
@@ -76,10 +104,16 @@ The workflow's draft-PR/no-merge rules and three-worker limit are instructions, 
 
 Updating WORKFLOW.md does not silently change running sessions or previously connected project configs. Reconfigure through the native project API/CLI for existing projects. Onboarding deliberately creates a new project and does not overwrite existing project settings.
 
+The runtime supports Codex, Claude Code, Copilot, and OpenCode through AO. It
+does not pin a model during onboarding; use the selected CLI/native runtime's
+model configuration. Runtime support is limited to those integrations, not
+every possible harness or model. The dashboard, native review gate and audit
+collector remain AO-specific; only the portable contract works without AO.
+
 ## Before / After Proof
 
 The [video lessons](VIDEO_NOTES.md) are applied through [AGENTS.md](AGENTS.md),
-[build guidelines](CODE_STRUCTURE.md), and [captured proof](PROOF.md). Newly
+[build guidelines](CODE_STRUCTURE.md), and the [proof contract](PROOF.md). Newly
 connected projects must provide before/after command evidence at handoff.
 Captures record actual exit status and output against clean commits in the
 worker's isolated worktree. Optional screenshots and videos are preserved by
@@ -97,7 +131,7 @@ Role probes test bug fixing, defect detection, and planning in dedicated native 
 ## Verification
 
 ```bash
-python3 -m unittest -v test_factory test_observability test_proof
+python3 -m unittest -v test_factory test_observability test_proof test_workflow
 node --check web/app.js
 node --check web/observatory.js
 ```

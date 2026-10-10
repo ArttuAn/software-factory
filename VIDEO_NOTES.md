@@ -9,7 +9,7 @@ Reviewed the original English automatic captions on 10 October 2026.
 | [11:34](https://www.youtube.com/watch?v=_LCeJZFIsd4&t=694s) | Make code readable to people and future agents. | CODE_STRUCTURE.md adds focused design guidance that respects the target repository. |
 | [14:48](https://www.youtube.com/watch?v=_LCeJZFIsd4&t=888s) | Show before/after behavior, visually or with measured output. | PROOF.md and the proof command capture process evidence, commit identity and optional preserved media. New projects require these pairs at handoff. |
 | [22:25](https://www.youtube.com/watch?v=_LCeJZFIsd4&t=1345s) | Feed independent review findings back through implementation and proof. | Existing AO review/repair handles this without a new paid service. WORKFLOW.md now requires proof again after repairs. |
-| [29:21](https://www.youtube.com/watch?v=_LCeJZFIsd4&t=1761s) | Keep the workflow portable across models and tools. | Instructions remain Markdown; capture and grading are standard-library Python. The execution adapter still uses the existing pinned AO runtime. |
+| [29:21](https://www.youtube.com/watch?v=_LCeJZFIsd4&t=1761s) | Keep the workflow portable across models and tools. | WORKFLOW.md, CODE_STRUCTURE.md and PROOF.md form a standalone tool-neutral contract. workflow.py exports them without a daemon. AO commands and capture requirements live in adapters/ao; the optional dashboard and gate still depend on AO. |
 
 The video uses Greptile's score as its review signal. This implementation retains
 the evidence already present in this repository: a current-head AO

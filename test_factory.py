@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 
 from factory import Factory, FactoryError, evaluate, github_evidence, parse_pr, handler, main
+from workflow import render as render_workflow
 
 
 class HandoffTests(unittest.TestCase):
@@ -188,6 +189,34 @@ class IntegrationBoundaryTests(unittest.TestCase):
             with patch.object(factory, "api") as native:
                 with self.assertRaises(FactoryError):
                     factory.add({"path": root, "requiredChecks": []})
+                native.assert_not_called()
+
+    def test_each_harness_receives_same_core_plus_ao_adapter_without_model_pin(self):
+        for harness in ("codex", "claude-code", "copilot", "opencode"):
+            with self.subTest(harness=harness), tempfile.TemporaryDirectory() as root:
+                factory = Factory("http://127.0.0.1:49082", root)
+                with patch.object(factory, "api", return_value={"project": {"id": "sample"}}) as native:
+                    factory.add({"path": root, "requiredChecks": ["test"], "harness": harness})
+                config = native.call_args.args[1]["config"]
+                for role in ("worker", "orchestrator"):
+                    self.assertEqual(config[role]["agent"], harness)
+                    self.assertNotIn("model", config[role]["agentConfig"])
+                self.assertEqual(config["reviewers"][0]["harness"], harness)
+                self.assertNotIn("model", config["reviewers"][0]["agentConfig"])
+                rules = config["agentRules"]
+                self.assertTrue(rules.startswith(render_workflow()))
+                self.assertIn("# Agent Orchestrator Adapter", rules)
+                self.assertIn("ao review trigger", rules)
+                self.assertIn("--ao-port 49082 proof capture", rules)
+                self.assertIn("adapters/ao/PROOF.md", rules)
+                self.assertIn("--ao-port 49082 trace-link", config["orchestratorRules"])
+
+    def test_unknown_runtime_harness_is_not_claimed_supported(self):
+        with tempfile.TemporaryDirectory() as root:
+            factory = Factory("http://unused", root)
+            with patch.object(factory, "api") as native:
+                with self.assertRaisesRegex(FactoryError, "Unsupported factory harness"):
+                    factory.add({"path": root, "requiredChecks": ["test"], "harness": "unknown"})
                 native.assert_not_called()
 
     def test_dispatch_forwards_stable_retry_key(self):

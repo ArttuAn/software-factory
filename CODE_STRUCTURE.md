@@ -2,8 +2,7 @@
 
 Follow the target repository's existing architecture and contribution guidance.
 Keep transport parsing, business decisions and external integrations separable.
-In this extension, handlers validate requests, Factory coordinates operations,
-and focused modules evaluate evidence. The native daemon owns agent execution.
+Keep tool-specific execution details outside the portable delivery contract.
 
 Prefer small functions with explicit inputs and results. Keep deterministic
 decisions independent of I/O so they can be tested against real failure cases.

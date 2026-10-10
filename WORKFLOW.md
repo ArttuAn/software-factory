@@ -1,22 +1,28 @@
-# Factory workflow
+# Factory Workflow
 
-This contract is injected into workers and independent reviewers by the factory.
-Repository AGENTS.md and contribution instructions remain authoritative.
+This is the portable delivery contract. It does not require a particular model,
+coding-agent harness, orchestrator, dashboard, or review service. The target
+repository's instructions and contribution policy remain authoritative. Choose
+tools and models through the harness you use; judge their output by evidence,
+not by a provider name or a model's self-assessment.
 
-1. **Understand.** Read the issue, repository guidance, relevant code and CI. State acceptance criteria and the smallest coherent change. Surface missing requirements before guessing.
-2. **Isolate and capture the baseline.** Work only in the assigned isolated worktree/branch. Keep one task per PR. Before editing, run a comparison command for each acceptance criterion and capture the actual output, exit code and baseline commit through the factory proof command. For bugs, reproduce the failure; for new features, demonstrate the missing behavior. Preserve unrelated changes.
-3. **Build and prove.** Follow the target repository's architecture and the factory's CODE_STRUCTURE.md guidance. Add meaningful regression coverage. Run the repository's required checks, fix failures, commit the change, and rerun the same comparison commands to capture after evidence. Include screenshots or recordings for visible changes; use comparable measurements or output pairs otherwise. Inspect the evidence yourself and return to building if it does not demonstrate the intended result. Report checks that could not run and why. Do not weaken tests, CI, branch protection, or this contract to get green results.
-4. **Publish a draft.** Push the branch and open a draft PR with problem, behavior change, before/after evidence, acceptance criteria, exact commands, commit IDs, and material limitations. Link the issue when one exists. Local artifact paths are not public attachments; use the repository's established upload process. Never merge, deploy, or publish a release.
-5. **Independent review.** Request AO's independent reviewer with `ao review trigger <session-id>`. Inspect implementation, tests, architecture and edge cases against the task. Check that proof criteria cover the acceptance criteria, comparisons are meaningful, assertions were not weakened, and media matches its description. Inspect captured proof with the factory proof command. Every review targets a specific PR head SHA. Report real findings through the native review workflow. Never submit an approval on behalf of another reviewer.
-6. **Repair.** Address CI failures and review findings in the same session and PR. Rerun relevant validation and after-proof capture, push, and request review of the new head. Stop repeated unproductive attempts and report the blocker.
-7. **Handoff.** Ask the factory readiness gate to inspect the PR. Handoff requires named required CI checks to succeed, no failing/pending observed checks, no unresolved review threads, no outstanding change requests, a mergeable open PR, and an independent AO review approved at the current head. A passing gate is evidence for human review, not a merge authorization.
+1. **Understand.** Read the task, repository guidance, relevant code and CI. State acceptance criteria and the smallest coherent change. Surface missing requirements before guessing.
+2. **Isolate and capture the baseline.** Use a dedicated branch/worktree for each independent task, starting from the current remote default branch. Continue an existing task on its assigned branch. Keep one task per PR and preserve unrelated changes. Before editing, record a comparison for each acceptance criterion: command, inputs, actual output, exit status, and baseline commit. For bugs reproduce the failure; for features demonstrate the missing behavior.
+3. **Build and prove.** Follow the target repository's architecture and the build guidelines. Add meaningful regression coverage. Run required checks, fix failures, commit, and repeat the same comparisons against the new commit. Include inspected screenshots or recordings for visible changes; use comparable measurements or output pairs otherwise. Follow the proof contract. Report checks that could not run and why. Do not weaken tests, CI, repository protections, or acceptance criteria to get green results.
+4. **Publish a draft.** Push the task branch and open a draft PR with the problem, behavior change, acceptance criteria, before/after evidence, exact commands, commit IDs, and material limitations. Link the issue when one exists. Local artifact paths are not public attachments; use the repository's established upload process. Never merge, deploy, or publish a release without explicit human authorization.
+5. **Independent review.** Obtain review in a separate reviewer context through the chosen tools. The reviewer must inspect the actual diff, tests, architecture, edge cases, and proof against the task, not merely repeat the implementer's summary. Check acceptance coverage, meaningful comparisons, unchanged assertions, and media descriptions. Bind every verdict to the PR and exact head commit. Never submit an approval on behalf of another reviewer. A different model is optional; an independent review context is required.
+6. **Repair.** Address CI failures and review findings in the same task branch and PR. Rerun validation and after-proof, push, and obtain review of the new head. Old approval and old after-proof do not approve a new commit. Stop repeated unproductive attempts and report the blocker.
+7. **Handoff.** Verify that named required CI checks succeed, no observed checks are failing or pending, review discussions and change requests are resolved, the open PR is mergeable, proof covers the task at the current head, and an independent reviewer approves that head. State remaining limitations. Humans decide whether to merge, deploy, or release.
 
-Draft PR creation and the working practices above are agent instructions. The external readiness gate is deterministic and read-only. Enforce merge requirements separately with GitHub branch protection.
+## Tool Boundaries
 
-Newly connected projects also require captured before/after pairs at handoff.
-Existing project policies are not silently migrated. Proof capture verifies
-execution and preservation; independent review must judge coverage and meaning.
+These instructions are not a sandbox, a concurrency quota, or branch protection.
+Use repository permissions and required checks for enforceable merge policy.
+Automated evidence gates are optional implementations of this contract; report
+what was actually checked and never claim an unavailable result. A passing gate
+is evidence for human review, not merge authorization.
 
-## Evidence and evaluation
-
-Native conversations, turns, activities and review runs are observed by the factory collector. Preserve tool output and validation evidence; never claim an unavailable result. Orchestrators must record worker delegation using the trace-link command injected into their project configuration. Reviewers must bind every verdict to the actual PR URL and target commit and include concrete findings when requesting changes. Role-probe benchmarks are separate, explicitly labeled sessions and must follow their fixture-specific task rather than publishing a PR.
+When delegating, assign explicit ownership and acceptance criteria. Avoid
+overlapping edits and retain task-to-worker relationships in the chosen tool's
+history. Worktrees isolate edits, not integration conflicts. Apply any runtime
+limits from the selected adapter separately.
