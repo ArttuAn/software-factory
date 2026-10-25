@@ -118,6 +118,7 @@ class IntegrationBoundaryTests(unittest.TestCase):
         instance.headers["Host"] = "127.0.0.1:48080"
         instance.reply = MagicMock()
         instance.path = "/api/state"
+        instance.headers["X-Factory-Client"] = "supervisor"
         instance.do_GET()
         token = instance.reply.call_args.args[0]["token"]
         body = {"projectId": "test", "prompt": "Do the task", "requestId": "stable-request"}
@@ -125,6 +126,7 @@ class IntegrationBoundaryTests(unittest.TestCase):
         instance.headers["X-Factory-Token"] = token
         instance.headers["Origin"] = "http://127.0.0.1:48080"
         instance.headers["Content-Length"] = str(len(raw))
+        instance.headers["Content-Type"] = "application/json"
         instance.rfile = BytesIO(raw)
         instance.path = "/api/spawn"
         instance.do_POST()
@@ -203,6 +205,7 @@ class IntegrationBoundaryTests(unittest.TestCase):
     def test_gate_rechecks_head_after_collecting_evidence(self):
         with tempfile.TemporaryDirectory() as root:
             factory = Factory("http://unused", root)
+            factory.save_policy("sample", {"requiredChecks": ["test"]})
             with patch.object(factory, "api", side_effect=[{"session": {"projectId": "sample"}}, {"runs": []}]), \
                  patch("factory.github_evidence", return_value=({"headRefOid": "old"}, [], [])), \
                  patch("factory.run_json", return_value={"headRefOid": "new"}):

@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -34,15 +35,26 @@ def run_json(args):
 
 
 def ao_request(base, path, body=None, method=None):
+    parsed = urllib.parse.urlsplit(base)
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+        raise FactoryError("AO transport requires an explicit IPv4 loopback HTTP origin")
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(base + path, data=data, method=method,
                                  headers={"Content-Type": "application/json"})
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *_args, **_kwargs):
+            return None
+
+    # Ambient proxy settings and daemon redirects must never forward private
+    # prompts or conversation data beyond the configured loopback daemon.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
-        with urllib.request.urlopen(req, timeout=120) as response:
+        with opener.open(req, timeout=120) as response:
             raw = response.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
-        raise FactoryError(f"AO HTTP {exc.code}: {exc.read().decode()}") from exc
+        exc.close()
+        raise FactoryError(f"AO HTTP {exc.code}; inspect the local daemon for details") from exc
     except urllib.error.URLError as exc:
         raise FactoryError(f"AO daemon unavailable: {exc.reason}") from exc
 
@@ -205,9 +217,14 @@ class Factory:
         with self.lock:
             policies = self.policies()
             policies[project] = policy
-            temp = self.state / "factory-policies.tmp"
-            temp.write_text(json.dumps(policies, indent=2) + "\n")
-            temp.replace(self.state / "factory-policies.json")
+            private_write(self.state / "factory-policies.json", policies)
+
+    def session(self, sid):
+        sid = safe_id(sid)
+        session = self.api(f"/api/v1/sessions/{sid}")["session"]
+        if session.get("projectId") not in self.policies():
+            raise FactoryError("Session is outside factory-managed projects")
+        return session
 
     def add(self, body):
         path = str(Path(body["path"]).expanduser().resolve(strict=True))
@@ -253,7 +270,7 @@ class Factory:
 
     def gate(self, sid, url):
         sid = safe_id(sid)
-        session = self.api(f"/api/v1/sessions/{sid}")["session"]
+        session = self.session(sid)
         policy = self.policies().get(session.get("projectId"), {})
         reviews = self.api(f"/api/v1/sessions/{sid}/reviews").get("runs", [])
         pr, checks, threads = github_evidence(url)
@@ -268,14 +285,29 @@ class Factory:
         reports.mkdir(exist_ok=True, mode=0o700)
         report = reports / f"{sid}-{time.time_ns()}.json"
         result["reportPath"] = str(report)
-        report.write_text(json.dumps(result, indent=2) + "\n")
+        private_write(report, result)
         return result
 
 
 def safe_id(value):
-    if not re.fullmatch(r"[\w.-]{1,150}", value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,149}", value):
         raise FactoryError("Invalid session identifier")
     return value
+
+
+def private_write(path, data):
+    path = Path(path).absolute()
+    if any(p.is_symlink() or getattr(p, "is_junction", lambda: False)() for p in (path, *path.parents)):
+        raise FactoryError("Refusing linked factory state path")
+    fd, temporary = tempfile.mkstemp(prefix=".factory-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            output.write(json.dumps(data, indent=2) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def handler(factory, port):
@@ -285,6 +317,12 @@ def handler(factory, port):
         def log_message(self, *_):
             pass
 
+        def local_request(self):
+            host = self.headers.get("Host")
+            return (host in (f"127.0.0.1:{port}", f"localhost:{port}")
+                    and self.headers.get("Origin") in (None, f"http://{host}")
+                    and self.headers.get("Sec-Fetch-Site") not in ("cross-site", "same-site"))
+
         def reply(self, data, status=200, content_type="application/json"):
             raw = json.dumps(data).encode() if content_type == "application/json" else data
             self.send_response(status)
@@ -292,15 +330,19 @@ def handler(factory, port):
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'")
             self.end_headers()
             self.wfile.write(raw)
 
         def do_GET(self):
             try:
-                if self.headers.get("Host") not in (f"127.0.0.1:{port}", f"localhost:{port}"):
-                    return self.reply({"error": "Invalid host"}, 403)
+                if not self.local_request():
+                    return self.reply({"error": "Request must originate from this local factory"}, 403)
                 path = urllib.parse.urlsplit(self.path).path
+                if path.startswith("/api/") and self.headers.get("X-Factory-Client") != "supervisor":
+                    return self.reply({"error": "Factory client header required"}, 403)
                 if path == "/":
                     return self.reply((ROOT / "web/index.html").read_bytes(), content_type="text/html; charset=utf-8")
                 if path in ("/app.js", "/style.css"):
@@ -308,27 +350,31 @@ def handler(factory, port):
                 if path in ("/assets/logo.svg", "/assets/logo-mark.svg", "/assets/icons.svg", "/assets/hero.svg"):
                     return self.reply((ROOT / "web" / path[1:]).read_bytes(), content_type="image/svg+xml")
                 if path == "/api/state":
+                    policies = factory.policies()
                     return self.reply({"engine": factory.api("/healthz"),
-                        "projects": factory.api("/api/v1/projects")["projects"],
-                        "sessions": factory.api("/api/v1/sessions")["sessions"],
-                        "policies": factory.policies(), "token": token})
+                        "projects": [p for p in factory.api("/api/v1/projects")["projects"] if p.get("id") in policies],
+                        "sessions": [s for s in factory.api("/api/v1/sessions")["sessions"] if s.get("projectId") in policies],
+                        "policies": policies, "token": token})
                 match = re.fullmatch(r"/api/sessions/([\w.-]+)/(conversation|reviews)", path)
                 if match:
+                    factory.session(match[1])
                     return self.reply(factory.api(f"/api/v1/sessions/{match[1]}/{match[2]}"))
                 return self.reply({"error": "Not found"}, 404)
             except (FactoryError, KeyError, ValueError, OSError) as exc:
                 self.reply({"error": str(exc)}, 502)
 
         def do_POST(self):
-            host = self.headers.get("Host")
-            origin = self.headers.get("Origin")
-            if host not in (f"127.0.0.1:{port}", f"localhost:{port}") or origin not in (None, f"http://{host}") or self.headers.get("X-Factory-Token") != token:
+            if not self.local_request() or not secrets.compare_digest(self.headers.get("X-Factory-Token", "").encode(), token.encode()):
                 return self.reply({"error": "Request must originate from this local factory"}, 403)
             try:
+                if self.headers.get_content_type() != "application/json":
+                    return self.reply({"error": "Content-Type must be application/json"}, 415)
                 length = int(self.headers.get("Content-Length", "0"))
                 if length < 2 or length > 32768:
                     return self.reply({"error": "Invalid request size"}, 413)
                 body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    return self.reply({"error": "Request body must be an object"}, 400)
                 if self.path == "/api/projects":
                     return self.reply(factory.add(body), 201)
                 if self.path == "/api/spawn":
@@ -337,6 +383,7 @@ def handler(factory, port):
                 if not match:
                     return self.reply({"error": "Not found"}, 404)
                 sid, action = match.groups()
+                factory.session(sid)
                 if action == "gate":
                     return self.reply(factory.gate(sid, body["prUrl"]))
                 if action == "review":

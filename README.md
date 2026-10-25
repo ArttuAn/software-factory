@@ -79,7 +79,7 @@ Updating WORKFLOW.md does not silently change running sessions or previously con
 ## Verification
 
 ```bash
-python3 -m unittest -v test_factory
+python3 -m unittest discover -v
 node --check web/app.js
 ```
 
@@ -100,7 +100,20 @@ git clone --depth 1 --branch v0.13.5 https://github.com/OrchestratorInc/agent-or
 
 The bootstrap downloads the official Linux x64 `.deb`, verifies both package and daemon hashes and extracts the daemon without system installation. The source tree has its own repository history and Apache-2.0 license. A copy of the upstream license and the release's copyright notice accompany the bundled daemon. For other platforms, use the [official desktop release](https://github.com/OrchestratorInc/agent-orchestrator/releases/tag/v0.13.5); this bootstrap is Linux x64 only.
 
-The supervisor and native daemon bind loopback only. Supervisor mutations require a per-process CSRF token and same-origin/Host checks. The upstream loopback API remains locally accessible as designed. Do not expose either port through a public tunnel. Telemetry is disabled in the launcher.
+The supervisor and native daemon bind loopback only. Supervisor reads require a
+custom client header and origin/Host checks; mutations additionally require a
+per-process CSRF token and JSON content. State lists and session operations are
+limited to projects onboarded through the factory. Requests to the native daemon
+bypass ambient proxies and refuse redirects, keeping prompts on loopback.
+Policy files and gate reports are written atomically with owner-only permissions
+on POSIX; on Windows, protect the state directory with its ACL.
+
+The upstream loopback API remains locally accessible as designed; supervisor
+checks do not secure that separate endpoint or isolate processes running as your
+user. Do not expose either port through a public tunnel. Telemetry is disabled
+in the launcher. Native conversation history, daemon logs and gate reports
+persist in the state directory; use the native client's lifecycle controls and
+your backup retention settings when removing sensitive project data.
 
 Ctrl+C stops the supervisor and gracefully requests its owned daemon to stop. `serve --connect` attaches to a separately managed daemon and leaves it running on exit. Advanced runtime recovery and cleanup remain native AO responsibilities; the extension does not delete worktrees.
 
