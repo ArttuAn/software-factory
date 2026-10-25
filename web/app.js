@@ -3,7 +3,7 @@ const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=
 let state={projects:[],sessions:[],policies:{}},selected=null,token='',view='conversation',timer;
 let taskRequest=null,sendRequest=null;
 function notice(message,error=false){const n=$('#notice');(document.querySelector('dialog[open]')||document.body).append(n);n.textContent=message;n.className=error?'error':'';n.hidden=false;clearTimeout(timer);timer=setTimeout(()=>n.hidden=true,error?30000:5000)}
-async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Factory-Token':token}:{},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok)throw Error(d.error||'Request failed');return d}
+async function api(path,body){const headers={'X-Factory-Client':'supervisor'};if(body){headers['Content-Type']='application/json';headers['X-Factory-Token']=token}const r=await fetch(path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok)throw Error(d.error||'Request failed');return d}
 async function busy(button,fn){button.disabled=true;try{await fn()}catch(e){notice(e.message,true)}finally{button.disabled=false}}
 function projectOptions(){const current=$('#project').value;$('#project').innerHTML=state.projects.length?state.projects.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join(''):'<option value="">No repositories connected</option>';if(state.projects.some(p=>p.id===current))$('#project').value=current;$('#new-task').disabled=!state.policies[$('#project').value]}
 function icon(name){return `<svg class="icon" aria-hidden="true"><use href="/assets/icons.svg#${name}"/></svg>`}
